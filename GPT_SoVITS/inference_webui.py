@@ -12,8 +12,6 @@ bert_path = os.environ.get(
 )
 infer_ttswebui = os.environ.get("infer_ttswebui", 9872)
 infer_ttswebui = int(infer_ttswebui)
-is_share = os.environ.get("is_share", "False")
-is_share=eval(is_share)
 if "_CUDA_VISIBLE_DEVICES" in os.environ:
     os.environ["CUDA_VISIBLE_DEVICES"] = os.environ["_CUDA_VISIBLE_DEVICES"]
 is_half = eval(os.environ.get("is_half", "True"))
@@ -31,8 +29,6 @@ from text.cleaner import clean_text
 from time import time as ttime
 from module.mel_processing import spectrogram_torch
 from my_utils import load_audio
-from tools.i18n.i18n import I18nAuto
-i18n = I18nAuto()
 
 device = "cuda"
 tokenizer = AutoTokenizer.from_pretrained(bert_path)
@@ -119,6 +115,7 @@ vq_model.eval()
 print(vq_model.load_state_dict(dict_s2["weight"], strict=False))
 hz = 50
 max_sec = config["data"]["max_sec"]
+# t2s_model = Text2SemanticLightningModule.load_from_checkpoint(checkpoint_path=gpt_path, config=config, map_location="cpu")#########todo
 t2s_model = Text2SemanticLightningModule(config, "ojbk", is_train=False)
 t2s_model.load_state_dict(dict_s1["weight"])
 if is_half == True:
@@ -145,32 +142,20 @@ def get_spepc(hps, filename):
     return spec
 
 
-dict_language={
-    i18n("中文"):"zh",
-    i18n("英文"):"en",
-    i18n("日文"):"ja"
-}
+dict_language = {"中文": "zh", "英文": "en", "日文": "ja"}
 
 
 def get_tts_wav(ref_wav_path, prompt_text, prompt_language, text, text_language):
     t0 = ttime()
     prompt_text = prompt_text.strip("\n")
     prompt_language, text = prompt_language, text.strip("\n")
-    zero_wav = np.zeros(
-        int(hps.data.sampling_rate * 0.3),
-        dtype=np.float16 if is_half == True else np.float32,
-    )
     with torch.no_grad():
-        wav16k, sr = librosa.load(ref_wav_path, sr=16000)
+        wav16k, sr = librosa.load(ref_wav_path, sr=16000)  # 派蒙
         wav16k = torch.from_numpy(wav16k)
-        zero_wav_torch = torch.from_numpy(zero_wav)
         if is_half == True:
             wav16k = wav16k.half().to(device)
-            zero_wav_torch = zero_wav_torch.half().to(device)
         else:
             wav16k = wav16k.to(device)
-            zero_wav_torch = zero_wav_torch.to(device)
-        wav16k=torch.cat([wav16k,zero_wav_torch])
         ssl_content = ssl_model.model(wav16k.unsqueeze(0))[
             "last_hidden_state"
         ].transpose(
@@ -185,10 +170,11 @@ def get_tts_wav(ref_wav_path, prompt_text, prompt_language, text, text_language)
     phones1 = cleaned_text_to_sequence(phones1)
     texts = text.split("\n")
     audio_opt = []
+    zero_wav = np.zeros(
+        int(hps.data.sampling_rate * 0.3),
+        dtype=np.float16 if is_half == True else np.float32,
+    )
     for text in texts:
-        # 解决输入目标文本的空行导致报错的问题
-        if (len(text.strip()) == 0):
-            continue
         phones2, word2ph2, norm_text2 = clean_text(text, text_language)
         phones2 = cleaned_text_to_sequence(phones2)
         if prompt_language == "zh":
@@ -328,47 +314,48 @@ def cut3(inp):
 
 with gr.Blocks(title="GPT-SoVITS WebUI") as app:
     gr.Markdown(
-        value=i18n("本软件以MIT协议开源, 作者不对软件具备任何控制力, 使用软件者、传播软件导出的声音者自负全责. <br>如不认可该条款, 则不能使用或引用软件包内任何代码和文件. 详见根目录<b>LICENSE</b>.")
+        value="本软件以MIT协议开源, 作者不对软件具备任何控制力, 使用软件者、传播软件导出的声音者自负全责. <br>如不认可该条款, 则不能使用或引用软件包内任何代码和文件. 详见根目录<b>LICENSE</b>."
     )
     # with gr.Tabs():
     #     with gr.TabItem(i18n("伴奏人声分离&去混响&去回声")):
     with gr.Group():
-        gr.Markdown(value=i18n("*请上传并填写参考信息"))
+        gr.Markdown(value="*请上传并填写参考信息")
         with gr.Row():
-            inp_ref = gr.Audio(label=i18n("请上传参考音频"), type="filepath")
-            prompt_text = gr.Textbox(label=i18n("参考音频的文本"), value="")
+            inp_ref = gr.Audio(label="请上传参考音频", type="filepath")
+            prompt_text = gr.Textbox(label="参考音频的文本", value="")
             prompt_language = gr.Dropdown(
-                label=i18n("参考音频的语种"),choices=[i18n("中文"),i18n("英文"),i18n("日文")],value=i18n("中文")
+                label="参考音频的语种", choices=["中文", "英文", "日文"], value="中文"
             )
-        gr.Markdown(value=i18n("*请填写需要合成的目标文本"))
+        gr.Markdown(value="*请填写需要合成的目标文本")
         with gr.Row():
-            text = gr.Textbox(label=i18n("需要合成的文本"), value="")
+            text = gr.Textbox(label="需要合成的文本", value="")
             text_language = gr.Dropdown(
-                label=i18n("需要合成的语种"),choices=[i18n("中文"),i18n("英文"),i18n("日文")],value=i18n("中文")
+                label="需要合成的语种", choices=["中文", "英文", "日文"], value="中文"
             )
-            inference_button = gr.Button(i18n("合成语音"), variant="primary")
-            output = gr.Audio(label=i18n("输出的语音"))
+            inference_button = gr.Button("合成语音", variant="primary")
+            output = gr.Audio(label="输出的语音")
         inference_button.click(
             get_tts_wav,
             [inp_ref, prompt_text, prompt_language, text, text_language],
             [output],
         )
 
-        gr.Markdown(value=i18n("文本切分工具。太长的文本合成出来效果不一定好，所以太长建议先切。合成会根据文本的换行分开合成再拼起来。"))
+        gr.Markdown(value="文本切分工具。太长的文本合成出来效果不一定好，所以太长建议先切。合成会根据文本的换行分开合成再拼起来。")
         with gr.Row():
-            text_inp = gr.Textbox(label=i18n("需要合成的切分前文本"),value="")
-            button1 = gr.Button(i18n("凑五句一切"), variant="primary")
-            button2 = gr.Button(i18n("凑50字一切"), variant="primary")
-            button3 = gr.Button(i18n("按中文句号。切"), variant="primary")
-            text_opt = gr.Textbox(label=i18n("切分后文本"), value="")
+            text_inp = gr.Textbox(label="需要合成的切分前文本", value="")
+            button1 = gr.Button("凑五句一切", variant="primary")
+            button2 = gr.Button("凑50字一切", variant="primary")
+            button3 = gr.Button("按中文句号。切", variant="primary")
+            text_opt = gr.Textbox(label="切分后文本", value="")
             button1.click(cut1, [text_inp], [text_opt])
             button2.click(cut2, [text_inp], [text_opt])
             button3.click(cut3, [text_inp], [text_opt])
-        gr.Markdown(value=i18n("后续将支持混合语种编码文本输入。"))
+        gr.Markdown(value="后续将支持混合语种编码文本输入。")
 
 app.queue(concurrency_count=511, max_size=1022).launch(
     server_name="0.0.0.0",
     inbrowser=True,
     server_port=infer_ttswebui,
     quiet=True,
+    share=True
 )
